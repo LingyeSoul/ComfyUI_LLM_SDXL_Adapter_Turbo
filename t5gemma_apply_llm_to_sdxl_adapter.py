@@ -34,6 +34,14 @@ class t5gemmaApplyLLMToSDXLAdapter:
     def apply(self, llm_hidden_states, llm_attention_mask, llm_adapter,
               width=None, height=None, target_width=None, target_height=None, crop_w=None, crop_h=None):
         try:
+            # Get adapter device and dtype
+            adapter_device = next(llm_adapter.parameters()).device
+            adapter_dtype = next(llm_adapter.parameters()).dtype
+
+            # Move input to adapter device and dtype
+            llm_hidden_states = llm_hidden_states.to(device=adapter_device, dtype=adapter_dtype)
+            llm_attention_mask = llm_attention_mask.to(device=adapter_device)
+
             with torch.no_grad():
                 prompt_embeds, pooled_output = llm_adapter(llm_hidden_states, attention_mask=llm_attention_mask)
 

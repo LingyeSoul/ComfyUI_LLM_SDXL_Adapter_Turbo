@@ -12,82 +12,112 @@ class LLMGGUFModelLoader:
     ComfyUI node that loads Language Model and tokenizer
     Supports various LLM architectures (Gemma, Llama, Mistral, etc.)
     """
-    
+
     def __init__(self):
         self.model = None
         self.tokenizer = None
         self.current_model_path = None
-        self.device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
-    
+        self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
+
     @classmethod
     def INPUT_TYPES(cls):
+        ggufs = get_llm_ggufs()
         return {
             "required": {
-                "model_name": (get_llm_ggufs(), {
-                    "default": get_llm_ggufs()[0] if get_llm_ggufs() else None
-                }),
+                "model_name": (ggufs, {"default": ggufs[0] if ggufs else None}),
             },
             "optional": {
-                "device": (["auto", "cuda:0", "cuda:1", "cpu"], {
-                    "default": "auto"
-                }),
-                "force_reload": ("BOOLEAN", {
-                    "default": False
-                }),
-            }
+                "device": (["auto", "cuda:0", "cuda:1", "cpu"], {"default": "auto"}),
+                "force_reload": ("BOOLEAN", {"default": False}),
+            },
         }
-    
+
     RETURN_TYPES = ("LLM_MODEL", "LLM_TOKENIZER", "STRING")
     RETURN_NAMES = ("model", "tokenizer", "info")
     FUNCTION = "load_model"
     CATEGORY = "llm_sdxl"
-    
+
+    def _cleanup_model(self):
+        """Thoroughly cleanup model resources to prevent memory leaks"""
+        if self.model is not None:
+            # Move to CPU first to release GPU memory
+            try:
+                if hasattr(self.model, "device") and "cuda" in str(self.model.device):
+                    self.model = self.model.to("cpu")
+            except Exception:
+                pass
+
+            # Clear forward hooks if any
+            if hasattr(self.model, "_forward_hooks"):
+                for hook_id in list(self.model._forward_hooks.keys()):
+                    self.model._forward_hooks.pop(hook_id, None)
+
+            del self.model
+            self.model = None
+
+        if self.tokenizer is not None:
+            del self.tokenizer
+            self.tokenizer = None
+
+        # Double gc.collect() to handle circular references
+        gc.collect()
+        gc.collect()
+
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+
     def load_model(self, model_name, device="auto", force_reload=False):
         """Load Language Model and tokenizer"""
         if device == "auto":
             device = self.device
-                
+
+        # Convert device to proper device_map format
+        if device in ["cuda:0", "cuda:1"]:
+            device_map = {"": device}
+        elif device == "cpu":
+            device_map = "cpu"
+        else:
+            device_map = device
+
         try:
             model_path = get_llm_gguf_path(model_name)
 
             # Check if we need to reload
-            if force_reload or self.model is None or self.current_model_path != model_path:
-                # Clear previous model
-                if self.model is not None:
-                    del self.model
-                    del self.tokenizer
-                    gc.collect()
-                    torch.cuda.empty_cache()
-                
+            if (
+                force_reload
+                or self.model is None
+                or self.current_model_path != model_path
+            ):
+                # Thoroughly clear previous model
+                self._cleanup_model()
+
                 logger.info(f"Loading Language Model from {model_path}")
-                
+
                 self.model = AutoModelForCausalLM.from_pretrained(
                     model_path,
-                    gguf_file = model_name,
+                    gguf_file=model_name,
                     torch_dtype=torch.bfloat16,
-                    device_map=device,
+                    device_map=device_map,
                     output_hidden_states=True,
-                    trust_remote_code=True
+                    trust_remote_code=True,
                 )
-                
+
+                # Load tokenizer from the same model path with GGUF file
                 self.tokenizer = AutoTokenizer.from_pretrained(
-                    #model_path,
-                    #gguf_file = model_name,
-                    "unsloth/gemma-3-1b-it",
-                    trust_remote_code=True
+                    model_path, gguf_file=model_name, trust_remote_code=True
                 )
-                
+
                 self.current_model_path = model_path
                 logger.info("Language Model loaded successfully")
-            
+
             info = f"Model: {model_path}\nDevice: {device}\nLoaded: {self.model is not None}"
-            
+
             return (self.model, self.tokenizer, info)
-            
+
         except Exception as e:
             logger.error(f"Failed to load Language Model: {str(e)}")
             raise Exception(f"Model loading failed: {str(e)}")
-
 
 
 # Node mapping for ComfyUI registration
@@ -97,4 +127,4 @@ NODE_CLASS_MAPPINGS = {
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "LLMGGUFModelLoader": "LLM GGUF Model Loader",
-} 
+}
