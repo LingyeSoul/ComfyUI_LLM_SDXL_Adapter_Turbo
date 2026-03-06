@@ -132,6 +132,20 @@ class LLMAdapterLoader:
     FUNCTION = "load_adapter"
     CATEGORY = "llm_sdxl"
 
+    def _clear_forward_hooks(self, module):
+        """Clear all forward hooks from a module and its children"""
+        # Clear hooks on the module itself
+        for hook_attr in ['_forward_hooks', '_forward_pre_hooks', '_backward_hooks']:
+            if hasattr(module, hook_attr):
+                hook_dict = getattr(module, hook_attr)
+                if isinstance(hook_dict, dict):
+                    for hook_id in list(hook_dict.keys()):
+                        hook_dict.pop(hook_id, None)
+
+        # Recursively clear hooks on all child modules
+        for child in module.children():
+            self._clear_forward_hooks(child)
+
     def _cleanup_adapter(self):
         """Thoroughly cleanup adapter resources to prevent memory leaks"""
         if self.adapter is not None:
@@ -144,10 +158,8 @@ class LLMAdapterLoader:
             except Exception:
                 pass
 
-            # Clear forward hooks if any
-            if hasattr(self.adapter, "_forward_hooks"):
-                for hook_id in list(self.adapter._forward_hooks.keys()):
-                    self.adapter._forward_hooks.pop(hook_id, None)
+            # Clear forward hooks if any (handle different nn.Module hook storage patterns)
+            self._clear_forward_hooks(self.adapter)
 
             del self.adapter
             self.adapter = None
@@ -197,14 +209,13 @@ class LLMAdapterLoader:
                 )
 
                 # Load checkpoint if file exists
-                strict_load = True
                 if os.path.exists(adapter_path):
                     checkpoint = load_file(adapter_path)
 
                     # Check if checkpoint uses old MultiheadAttention format
                     has_mha_weights = any(
-                        ".attn.in_proj" in k or 
-                        "compression_attention.in_proj" in k or 
+                        ".attn.in_proj" in k or
+                        "compression_attention.in_proj" in k or
                         "pooling_attention.in_proj" in k
                         for k in checkpoint.keys()
                     )
@@ -213,8 +224,8 @@ class LLMAdapterLoader:
                         logger.info("Converting MHA weights to separate QKV format for Flash Attention...")
                         checkpoint = convert_mha_to_separate_qkv(checkpoint)
 
-                    if hasattr(checkpoint, "input_norm"):
-                        strict_load = False
+                    # Check if checkpoint contains input_norm keys (for backward compatibility)
+                    strict_load = not any("input_norm" in k for k in checkpoint.keys())
 
                     self.adapter.load_state_dict(checkpoint, strict=strict_load)
                     logger.info(f"Loaded adapter weights from {adapter_path}")
