@@ -75,7 +75,7 @@ ADAPTER_PRESETS = {
         "n_wide_blocks": 2,
         "n_narrow_blocks": 3,
         "num_heads": 16,
-        "dropout": 0,
+        "dropout": 0.1,
     },
     "t5gemma": {
         "llm_dim": 2304,
@@ -212,10 +212,10 @@ class LLMAdapterLoader:
                 if os.path.exists(adapter_path):
                     checkpoint = load_file(adapter_path)
 
-                    # Check if checkpoint contains input_norm keys (for backward compatibility)
-                    strict_load = not any("input_norm" in k for k in checkpoint.keys())
+                    # Temporary debugging mode: force strict load to surface key mismatches.
+                    strict_load = True
 
-                    # Load checkpoint - model will auto-convert MHA format if needed
+                    # Load checkpoint and fail fast on any missing/unexpected keys.
                     self.adapter.load_state_dict(checkpoint, strict=strict_load)
                     logger.info(f"Loaded adapter weights from {adapter_path}")
                 else:

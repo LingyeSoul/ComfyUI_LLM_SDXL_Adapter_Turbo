@@ -36,6 +36,9 @@ git clone https://github.com/LingyeSoul/ComfyUI_LLM_SDXL_Adapter_Turbo.git
    - 将适配器文件放入 `ComfyUI/models/llm_adapters/`
 
 
+### 提示
+本项目目前仅支持gemma-3-1b-it模型，建议使用原始非量化模型，如果使用GGUF，加载器会像原版一样强制加载原始tokenizer等，以保证GGUF模型不会过多损失效果
+
 ## 📁 文件结构示例
 
 ```

@@ -49,8 +49,20 @@ class ApplyLLMToSDXLAdapter:
             # ComfyUI expects conditioning as a list of [cond_tensor, metadata_dict] tuples
             comfy_conditioning = [[conditioning, {"pooled_output": pooled_output}]]
 
+            # Quick diagnostics for prompt-compliance debugging.
+            cond_mean = conditioning.mean().item()
+            cond_std = conditioning.std().item()
+            cond_norm = conditioning.norm().item()
+            pooled_mean = pooled_output.mean().item()
+            pooled_std = pooled_output.std().item()
+            pooled_norm = pooled_output.norm().item()
+
             # Prepare info
-            info = f"Conditioning shape: {conditioning.shape}"
+            info = (
+                f"Conditioning shape: {conditioning.shape}\n"
+                f"cond(mean/std/norm): {cond_mean:.6f}/{cond_std:.6f}/{cond_norm:.6f}\n"
+                f"pooled(mean/std/norm): {pooled_mean:.6f}/{pooled_std:.6f}/{pooled_norm:.6f}"
+            )
 
             logger.info(f"Applied LLM to SDXL adapter: {info}")
 

@@ -196,7 +196,19 @@ class LLMModelLoader:
                 self.current_model_path = model_path
                 logger.info("Language Model loaded successfully")
 
-            info = f"Model: {model_path}\nDevice: {device}\nAttention: {attn_implementation}\nLoaded: {self.model is not None}"
+            model_type = getattr(self.model.config, "model_type", "unknown")
+            hidden_size = getattr(self.model.config, "hidden_size", "unknown")
+            num_hidden_layers = getattr(self.model.config, "num_hidden_layers", "unknown")
+
+            info = (
+                f"Model: {model_path}\n"
+                f"Device: {device}\n"
+                f"Attention: {attn_implementation}\n"
+                f"model_type: {model_type}\n"
+                f"hidden_size: {hidden_size}\n"
+                f"num_hidden_layers: {num_hidden_layers}\n"
+                f"Loaded: {self.model is not None}"
+            )
 
             return (self.model, self.tokenizer, info)
 

@@ -2,9 +2,50 @@ import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
 import gc
 import logging
+import os
+import folder_paths
 from .utils import get_llm_ggufs, get_llm_gguf_path
 
 logger = logging.getLogger("LLM-SDXL-Adapter-Turbo")
+
+GEMMA_TOKENIZER_REPO = "unsloth/gemma-3-1b-it"
+GEMMA_LOCAL_TOKENIZER_DIR = "gemma-3-1b-it"
+
+
+def _get_local_gemma_tokenizer_path():
+    """Return local cache path for the hardcoded Gemma tokenizer."""
+    return os.path.join(folder_paths.models_dir, "llm", GEMMA_LOCAL_TOKENIZER_DIR)
+
+
+def _ensure_local_gemma_tokenizer():
+    """
+    Ensure hardcoded Gemma tokenizer exists under models/llm/gemma-3-1b-it.
+    Downloads from HF once and reuses local cache afterwards.
+    """
+    local_path = _get_local_gemma_tokenizer_path()
+    required_files = [
+        "tokenizer_config.json",
+        "special_tokens_map.json",
+    ]
+
+    if os.path.isdir(local_path) and all(
+        os.path.exists(os.path.join(local_path, file_name)) for file_name in required_files
+    ):
+        return local_path, False
+
+    os.makedirs(local_path, exist_ok=True)
+    logger.info(
+        "Local Gemma tokenizer cache not found at %s, downloading %s",
+        local_path,
+        GEMMA_TOKENIZER_REPO,
+    )
+
+    tokenizer = AutoTokenizer.from_pretrained(
+        GEMMA_TOKENIZER_REPO,
+        trust_remote_code=True,
+    )
+    tokenizer.save_pretrained(local_path)
+    return local_path, True
 
 
 def _is_flash_attn_2_available():
@@ -163,6 +204,7 @@ class LLMGGUFModelLoader:
 
         try:
             model_path = get_llm_gguf_path(model_name)
+            tokenizer_source = "unknown"
 
             # Check if we need to reload
             if (
@@ -187,15 +229,48 @@ class LLMGGUFModelLoader:
 
                 logger.info(f"Using attention implementation: {attn_implementation}")
 
-                # Load tokenizer from the same model path with GGUF file
+                # Force tokenizer/config source to Gemma IT baseline for better
+                # compatibility with adapter expectations.
+                tokenizer_path, downloaded = _ensure_local_gemma_tokenizer()
                 self.tokenizer = AutoTokenizer.from_pretrained(
-                    model_path, gguf_file=model_name, trust_remote_code=True
+                    tokenizer_path,
+                    trust_remote_code=True,
+                    local_files_only=True,
                 )
+                tokenizer_source = tokenizer_path
+
+                if downloaded:
+                    logger.info(f"Downloaded and cached tokenizer at: {tokenizer_path}")
+                else:
+                    logger.info(f"Using cached tokenizer at: {tokenizer_path}")
+            else:
+                tokenizer_source = _get_local_gemma_tokenizer_path()
 
                 self.current_model_path = model_path
                 logger.info("Language Model loaded successfully")
 
-            info = f"Model: {model_path}\nDevice: {device}\nAttention: {attn_implementation}\nLoaded: {self.model is not None}"
+            model_type = getattr(self.model.config, "model_type", "unknown")
+            hidden_size = getattr(self.model.config, "hidden_size", "unknown")
+            num_hidden_layers = getattr(self.model.config, "num_hidden_layers", "unknown")
+
+            logger.warning(
+                "GGUF model path is active. Quantized/dequantized GGUF hidden states may drift from the adapter training distribution. "
+                "For best prompt compliance, prefer LLMModelLoader with the original HF checkpoint."
+            )
+
+            info = (
+                f"Model: {model_path}\n"
+                f"Device: {device}\n"
+                f"Attention: {attn_implementation}\n"
+                f"model_type: {model_type}\n"
+                f"hidden_size: {hidden_size}\n"
+                f"num_hidden_layers: {num_hidden_layers}\n"
+                f"Tokenizer source: {tokenizer_source}\n"
+                f"Source: GGUF\n"
+                f"Loaded: {self.model is not None}"
+            )
+
+            logger.info(f"Tokenizer source: {tokenizer_source}")
 
             return (self.model, self.tokenizer, info)
 

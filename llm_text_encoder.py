@@ -26,6 +26,12 @@ class LLMTextEncoder:
                     "multiline": True,
                     "default": "You are expert in understanding of user prompts for image generations. Create an image according to the prompt from user."
                 }),
+                "use_chat_template": ("BOOLEAN", {
+                    "default": True
+                }),
+                "add_generation_prompt": ("BOOLEAN", {
+                    "default": False
+                }),
                 "skip_first": ("INT", {
                     "default": 27,
                     "min": 0,
@@ -40,7 +46,16 @@ class LLMTextEncoder:
     FUNCTION = "encode_text"
     CATEGORY = "llm_sdxl_turbo"
     
-    def encode_text(self, model, tokenizer, text, system_prompt="You are expert in understanding of user prompts for image generations. Create an image according to the prompt from user.", skip_first=27):
+    def encode_text(
+        self,
+        model,
+        tokenizer,
+        text,
+        system_prompt="You are expert in understanding of user prompts for image generations. Create an image according to the prompt from user.",
+        use_chat_template=True,
+        add_generation_prompt=False,
+        skip_first=27,
+    ):
         """
         Encode text using Language Model and return hidden states
         """
@@ -48,40 +63,57 @@ class LLMTextEncoder:
             # Get model device
             device = next(model.parameters()).device
             
-            # Prepare chat template
-            messages = [
-                {
-                    "role": "system",
-                    "content": [
-                        {"type": "text", "text": system_prompt}
-                    ]
-                },
-                {
-                    "role": "user", 
-                    "content": [
-                        {"type": "text", "text": text}
-                    ]
-                }
-            ]
-            
-            # Apply chat template
-            inputs = tokenizer.apply_chat_template(
-                messages,
-                tokenize=True,
-                return_dict=True,
-                return_tensors="pt",
-                add_generation_prompt=True,
-            ).to(device)
+            if use_chat_template:
+                # Build a chat-formatted input for instruction-tuned LLMs.
+                messages = [
+                    {
+                        "role": "system",
+                        "content": [
+                            {"type": "text", "text": system_prompt}
+                        ]
+                    },
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": text}
+                        ]
+                    }
+                ]
+
+                inputs = tokenizer.apply_chat_template(
+                    messages,
+                    tokenize=True,
+                    return_dict=True,
+                    return_tensors="pt",
+                    add_generation_prompt=add_generation_prompt,
+                ).to(device)
+            else:
+                # Raw prompt mode is often better for tag-style prompts.
+                inputs = tokenizer(
+                    text,
+                    return_tensors="pt",
+                ).to(device)
             
             # Generate hidden states
             with torch.no_grad():
                 outputs = model(**inputs)
                 
-            # Extract hidden states, skipping first tokens
+            # Extract hidden states and skip prefix tokens if requested.
             # Convert to float32 for consistent processing with the adapter
-            hidden_states = outputs['hidden_states'][-1][:, skip_first:, :].to(torch.float).contiguous()
+            full_hidden_states = outputs["hidden_states"][-1]
+            total_tokens = full_hidden_states.shape[1]
+            effective_skip = min(skip_first, max(0, total_tokens - 1))
+            hidden_states = full_hidden_states[:, effective_skip:, :].to(torch.float).contiguous()
             # Prepare info
-            info = f"Text: {text[:50]}...\nTokens after skip: {hidden_states.shape[1]}\nShape: {hidden_states.shape}"
+            info = (
+                f"Text: {text[:50]}...\n"
+                f"Mode: {'chat_template' if use_chat_template else 'raw_prompt'}\n"
+                f"add_generation_prompt: {add_generation_prompt if use_chat_template else 'N/A'}\n"
+                f"Tokens total: {total_tokens}\n"
+                f"Skip first: requested={skip_first}, effective={effective_skip}\n"
+                f"Tokens after skip: {hidden_states.shape[1]}\n"
+                f"Shape: {hidden_states.shape}"
+            )
             
             logger.info(f"Encoded text with shape: {hidden_states.shape}")
             
