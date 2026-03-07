@@ -26,7 +26,7 @@ class T5GEMMATextEncoder:
     RETURN_TYPES = ("LLM_HIDDEN_STATES", "LLM_ATTENTION_MASK", "STRING")
     RETURN_NAMES = ("hidden_states", "attention_mask", "info")
     FUNCTION = "encode_text"
-    CATEGORY = "llm_sdxl"
+    CATEGORY = "llm_sdxl_turbo"
     
     def encode_text(self, llm_model, llm_tokenizer, text, max_length, device, dtype):
         """

@@ -38,7 +38,7 @@ class LLMTextEncoder:
     RETURN_TYPES = ("LLM_HIDDEN_STATES", "STRING")
     RETURN_NAMES = ("hidden_states", "info")
     FUNCTION = "encode_text"
-    CATEGORY = "llm_sdxl"
+    CATEGORY = "llm_sdxl_turbo"
     
     def encode_text(self, model, tokenizer, text, system_prompt="You are expert in understanding of user prompts for image generations. Create an image according to the prompt from user.", skip_first=27):
         """

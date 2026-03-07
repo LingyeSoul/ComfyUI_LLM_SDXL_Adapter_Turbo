@@ -29,7 +29,7 @@ class t5gemmaApplyLLMToSDXLAdapter:
 
     RETURN_TYPES = ("CONDITIONING",)
     FUNCTION = "apply"
-    CATEGORY = "llm_sdxl"
+    CATEGORY = "llm_sdxl_turbo"
 
     def apply(self, llm_hidden_states, llm_attention_mask, llm_adapter,
               width=None, height=None, target_width=None, target_height=None, crop_w=None, crop_h=None):
@@ -45,8 +45,9 @@ class t5gemmaApplyLLMToSDXLAdapter:
             with torch.no_grad():
                 prompt_embeds, pooled_output = llm_adapter(llm_hidden_states, attention_mask=llm_attention_mask)
 
-            prompt_embeds = prompt_embeds.cpu().contiguous()
-            pooled_output = pooled_output.cpu().contiguous()
+            # Use the same device as the adapter for consistency
+            prompt_embeds = prompt_embeds.contiguous()
+            pooled_output = pooled_output.contiguous()
 
             meta = {"pooled_output": pooled_output}
             if width is not None and height is not None:

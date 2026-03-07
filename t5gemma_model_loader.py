@@ -61,7 +61,7 @@ class T5GEMMALoader:
     RETURN_TYPES = ("LLM_MODEL", "LLM_TOKENIZER", "STRING")
     RETURN_NAMES = ("model", "tokenizer", "info")
     FUNCTION = "load_model"
-    CATEGORY = "llm_sdxl"
+    CATEGORY = "llm_sdxl_turbo"
 
     def _cleanup_model(self):
         """Thoroughly cleanup model resources to prevent memory leaks"""

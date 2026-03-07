@@ -50,7 +50,7 @@ class LLMAdapterLoaderCustom:
     RETURN_TYPES = ("LLM_ADAPTER", "STRING")
     RETURN_NAMES = ("llm_adapter", "info")
     FUNCTION = "load_adapter"
-    CATEGORY = "llm_sdxl"
+    CATEGORY = "llm_sdxl_turbo"
 
     def _cleanup_adapter(self):
         """Thoroughly cleanup adapter resources to prevent memory leaks"""

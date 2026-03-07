@@ -130,7 +130,7 @@ class LLMAdapterLoader:
     RETURN_TYPES = ("LLM_ADAPTER", "STRING")
     RETURN_NAMES = ("llm_adapter", "info")
     FUNCTION = "load_adapter"
-    CATEGORY = "llm_sdxl"
+    CATEGORY = "llm_sdxl_turbo"
 
     def _clear_forward_hooks(self, module):
         """Clear all forward hooks from a module and its children"""

@@ -1,5 +1,4 @@
 import torch
-import gc
 import logging
 
 logger = logging.getLogger("LLM-SDXL-Adapter-Turbo")
@@ -22,7 +21,7 @@ class ApplyLLMToSDXLAdapter:
     RETURN_TYPES = ("CONDITIONING", "STRING")
     RETURN_NAMES = ("conditioning", "info")
     FUNCTION = "apply_adapter"
-    CATEGORY = "llm_sdxl"
+    CATEGORY = "llm_sdxl_turbo"
 
     def apply_adapter(self, llm_hidden_states, llm_adapter):
         """Apply the LLM to SDXL adapter transformation"""
@@ -38,23 +37,20 @@ class ApplyLLMToSDXLAdapter:
             with torch.no_grad():
                 conditioning_gpu, pooled_gpu = llm_adapter(input_tensor)
 
-            # Immediately move to CPU and ensure contiguous memory
-            conditioning = conditioning_gpu.cpu().contiguous()
-            pooled_output = pooled_gpu.cpu().contiguous()
+            # Use the same device as the adapter for consistency
+            # This helps avoid device mismatch when merging with other conditioning
+            conditioning = conditioning_gpu.contiguous()
+            pooled_output = pooled_gpu.contiguous()
 
-            # Clean up GPU tensors immediately to prevent memory accumulation
-            del input_tensor, conditioning_gpu, pooled_gpu
-            gc.collect()
-
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
+            # Clean up input tensor
+            del input_tensor
 
             # Format conditioning for ComfyUI
             # ComfyUI expects conditioning as a list of [cond_tensor, metadata_dict] tuples
             comfy_conditioning = [[conditioning, {"pooled_output": pooled_output}]]
 
             # Prepare info
-            info = f"Conditioning shape: {conditioning.shape}"
+            info = f"Conditioning shape: {conditioning.shape}, device: {conditioning.device}"
 
             logger.info(f"Applied LLM to SDXL adapter: {info}")
 
