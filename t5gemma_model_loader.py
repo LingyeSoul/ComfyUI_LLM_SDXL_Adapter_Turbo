@@ -7,6 +7,32 @@ from .utils import get_llm_checkpoints, get_llm_checkpoint_path
 logger = logging.getLogger("LLM-SDXL-Adapter-Turbo")
 
 
+def _is_flash_attn_2_available():
+    """
+    检查 Flash Attention 2 是否可用（兼容旧版 transformers）
+    """
+    try:
+        # 方法1: 尝试导入 transformers 的检测函数（新版）
+        from transformers.utils import is_flash_attn_2_available
+        return is_flash_attn_2_available()
+    except ImportError:
+        pass
+    
+    try:
+        # 方法2: 尝试导入 transformers 的旧版检测函数
+        from transformers.utils import is_flash_attn_available
+        return is_flash_attn_available()
+    except ImportError:
+        pass
+    
+    try:
+        # 方法3: 直接检测 flash_attn 包（兼容旧版 transformers）
+        import flash_attn
+        return True
+    except ImportError:
+        return False
+
+
 def _get_attention_implementation(backend="auto"):
     """
     Get the attention implementation based on backend selection.
@@ -18,12 +44,39 @@ def _get_attention_implementation(backend="auto"):
         Tuple of (implementation_name, available)
     """
     if backend == "auto":
-        if hasattr(torch, 'compile'):
+        # 优先检查 Flash Attention 2
+        if _is_flash_attn_2_available():
+            logger.info("Flash Attention 2 is available")
+            return "flash_attention_2", True
+        
+        # 其次检查 PyTorch SDPA 是否可用
+        if hasattr(torch.backends.cuda, 'enable_flash_sdp'):
             try:
-                return "sdpa", True
-            except Exception:
-                pass
+                # 启用 SDPA 后端
+                torch.backends.cuda.enable_flash_sdp(True)
+                torch.backends.cuda.enable_mem_efficient_sdp(True)
+                torch.backends.cuda.enable_math_sdp(True)
+                
+                # 验证是否成功启用
+                if torch.backends.cuda.flash_sdp_enabled():
+                    logger.info("PyTorch SDPA (Flash Attention) is enabled")
+                    return "sdpa", True
+            except Exception as e:
+                logger.warning(f"Failed to enable SDPA: {e}")
+        
+        # 最后回退到 eager
+        logger.info("Using eager attention implementation")
         return "eager", True
+    
+    # 用户指定了特定后端
+    if backend == "flash_attention_2":
+        if not _is_flash_attn_2_available():
+            logger.warning("Flash Attention 2 requested but not available. Install with: pip install flash-attn --no-build-isolation")
+            return "sdpa", False
+    elif backend == "sdpa":
+        if hasattr(torch.backends.cuda, 'enable_flash_sdp'):
+            torch.backends.cuda.enable_flash_sdp(True)
+            torch.backends.cuda.enable_mem_efficient_sdp(True)
     
     return backend, True
 
