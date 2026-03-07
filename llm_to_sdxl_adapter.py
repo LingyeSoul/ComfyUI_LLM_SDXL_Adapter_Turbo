@@ -444,10 +444,7 @@ class LLMToSDXLAdapter(nn.Module):
 
     def load_state_dict(self, state_dict, strict=True):
         """
-        Override load_state_dict to automatically convert MHA format weights
-        to separate QKV format for backward compatibility.
+        Load state dict. Only supports converted adapter format.
+        Use convert_adapter_format.py to convert old format adapters.
         """
-        # Convert state dict if it contains MHA format weights
-        converted_state_dict = convert_mha_to_separate_qkv(state_dict)
-        # Call parent load_state_dict with converted weights
-        return super().load_state_dict(converted_state_dict, strict=strict)
+        return super().load_state_dict(state_dict, strict=strict)
