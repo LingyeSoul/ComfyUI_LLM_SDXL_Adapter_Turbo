@@ -393,7 +393,7 @@ class LLMToSDXLAdapter(nn.Module):
         )
 
         # Reshape back: (B, H, T, D) -> (B, T, C)
-        compressed_sequence = compressed_sequence.transpose(1, 2).contiguous().view(batch_size, tgt_len, sdxl_seq_dim)
+        compressed_sequence = compressed_sequence.transpose(1, 2).contiguous().view(batch_size, tgt_len, self.compression_num_heads * self.compression_head_dim)
         compressed_sequence = self.compression_out_proj(compressed_sequence)
 
         # Optional: Gate mechanism for mixing with queries
@@ -434,7 +434,7 @@ class LLMToSDXLAdapter(nn.Module):
         )
 
         # Reshape back and project
-        pooled = pooled.transpose(1, 2).contiguous().view(batch_size, 1, sdxl_seq_dim)
+        pooled = pooled.transpose(1, 2).contiguous().view(batch_size, 1, self.pooling_num_heads * self.pooling_head_dim)
         pooled_output = self.pooling_out_proj(pooled).squeeze(1)
 
         # Final projection for pooled embeddings
