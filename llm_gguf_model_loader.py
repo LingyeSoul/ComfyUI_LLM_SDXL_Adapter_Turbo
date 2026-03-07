@@ -134,6 +134,11 @@ class LLMGGUFModelLoader:
         self.current_model_path = None
         self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
 
+    # Process-level cache to avoid repeated GGUF reloading across node executions.
+    _shared_model = None
+    _shared_tokenizer = None
+    _shared_cache_key = None
+
     @classmethod
     def INPUT_TYPES(cls):
         ggufs = get_llm_ggufs()
@@ -145,6 +150,7 @@ class LLMGGUFModelLoader:
             "optional": {
                 "device": (["auto", "cuda:0", "cuda:1", "cpu"], {"default": "auto"}),
                 "attention_backend": (attention_backends, {"default": "auto"}),
+                "hidden_state_only": ("BOOLEAN", {"default": True}),
                 "force_reload": ("BOOLEAN", {"default": False}),
             },
         }
@@ -184,7 +190,7 @@ class LLMGGUFModelLoader:
             torch.cuda.empty_cache()
             torch.cuda.synchronize()
 
-    def load_model(self, model_name, device="auto", attention_backend="auto", force_reload=False):
+    def load_model(self, model_name, device="auto", attention_backend="auto", hidden_state_only=True, force_reload=False):
         """Load Language Model and tokenizer"""
         if device == "auto":
             device = self.device
@@ -205,49 +211,77 @@ class LLMGGUFModelLoader:
         try:
             model_path = get_llm_gguf_path(model_name)
             tokenizer_source = "unknown"
+            cache_key = (model_path, model_name, str(device_map), attn_implementation, bool(hidden_state_only))
 
-            # Check if we need to reload
             if (
-                force_reload
-                or self.model is None
-                or self.current_model_path != model_path
+                not force_reload
+                and LLMGGUFModelLoader._shared_cache_key == cache_key
+                and LLMGGUFModelLoader._shared_model is not None
+                and LLMGGUFModelLoader._shared_tokenizer is not None
             ):
+                self.model = LLMGGUFModelLoader._shared_model
+                self.tokenizer = LLMGGUFModelLoader._shared_tokenizer
+                self.current_model_path = model_path
+                tokenizer_source = _get_local_gemma_tokenizer_path()
+                logger.info("Reusing cached GGUF model and tokenizer")
+            else:
+
+                # Check if we need to reload
+                if (
+                    force_reload
+                    or self.model is None
+                    or self.current_model_path != model_path
+                ):
                 # Thoroughly clear previous model
-                self._cleanup_model()
+                    self._cleanup_model()
 
-                logger.info(f"Loading Language Model from {model_path}")
+                    logger.info(f"Loading Language Model from {model_path}")
 
-                self.model = AutoModelForCausalLM.from_pretrained(
-                    model_path,
-                    gguf_file=model_name,
-                    torch_dtype=torch.bfloat16,
-                    device_map=device_map,
-                    output_hidden_states=True,
-                    trust_remote_code=True,
-                    attn_implementation=attn_implementation,
-                )
+                    self.model = AutoModelForCausalLM.from_pretrained(
+                        model_path,
+                        gguf_file=model_name,
+                        torch_dtype=torch.bfloat16,
+                        device_map=device_map,
+                        output_hidden_states=True,
+                        trust_remote_code=True,
+                        attn_implementation=attn_implementation,
+                        low_cpu_mem_usage=True,
+                    )
 
-                logger.info(f"Using attention implementation: {attn_implementation}")
+                    logger.info(f"Using attention implementation: {attn_implementation}")
+                    logger.info(f"Hidden-state-only load path: {hidden_state_only}")
 
                 # Force tokenizer/config source to Gemma IT baseline for better
                 # compatibility with adapter expectations.
-                tokenizer_path, downloaded = _ensure_local_gemma_tokenizer()
-                self.tokenizer = AutoTokenizer.from_pretrained(
-                    tokenizer_path,
-                    trust_remote_code=True,
-                    local_files_only=True,
-                )
-                tokenizer_source = tokenizer_path
+                    tokenizer_path, downloaded = _ensure_local_gemma_tokenizer()
+                    self.tokenizer = AutoTokenizer.from_pretrained(
+                        tokenizer_path,
+                        trust_remote_code=True,
+                        local_files_only=True,
+                    )
+                    tokenizer_source = tokenizer_path
 
-                if downloaded:
-                    logger.info(f"Downloaded and cached tokenizer at: {tokenizer_path}")
+                    if downloaded:
+                        logger.info(f"Downloaded and cached tokenizer at: {tokenizer_path}")
+                    else:
+                        logger.info(f"Using cached tokenizer at: {tokenizer_path}")
+
+                    # Keep behavior consistent with normal loader for text encoder auto mode.
+                    self.model.eval()
+                    self.model.requires_grad_(False)
+                    self.model._llm_sdxl_hidden_state_only = bool(hidden_state_only)
+                    self.model._llm_sdxl_hidden_state_only_impl = "compat"
+
+                    self.current_model_path = model_path
+                    logger.info("Language Model loaded successfully")
                 else:
-                    logger.info(f"Using cached tokenizer at: {tokenizer_path}")
-            else:
-                tokenizer_source = _get_local_gemma_tokenizer_path()
+                    tokenizer_source = _get_local_gemma_tokenizer_path()
 
-                self.current_model_path = model_path
-                logger.info("Language Model loaded successfully")
+                # Update shared cache after successful load/attach.
+                if self.model is not None and self.tokenizer is not None:
+                    LLMGGUFModelLoader._shared_model = self.model
+                    LLMGGUFModelLoader._shared_tokenizer = self.tokenizer
+                    LLMGGUFModelLoader._shared_cache_key = cache_key
 
             model_type = getattr(self.model.config, "model_type", "unknown")
             hidden_size = getattr(self.model.config, "hidden_size", "unknown")
@@ -262,6 +296,8 @@ class LLMGGUFModelLoader:
                 f"Model: {model_path}\n"
                 f"Device: {device}\n"
                 f"Attention: {attn_implementation}\n"
+                f"hidden_state_only: {hidden_state_only}\n"
+                f"hidden_state_only_impl: compat\n"
                 f"model_type: {model_type}\n"
                 f"hidden_size: {hidden_size}\n"
                 f"num_hidden_layers: {num_hidden_layers}\n"

@@ -3,69 +3,11 @@ from safetensors.torch import load_file
 import logging
 import gc
 import os
-import re
 from .utils import get_llm_adapters, get_llm_adapter_path
 from .llm_to_sdxl_adapter import LLMToSDXLAdapter
 
 logger = logging.getLogger("LLM-SDXL-Adapter-Turbo")
 
-
-def convert_explicit_adapter_to_mha(state_dict):
-    """
-    Converts Adapter from the explicit form with separate QKV layers
-    to the MultiheadAttention (MHA) format used in LLM_to_SDXL_Adapter.
-
-    This handles:
-    - Concatenating q_proj, k_proj, v_proj -> in_proj
-    - Renaming o_proj -> out_proj
-    """
-    converted_dict = {}
-    mha_buffers = {}
-
-    qkv_pattern = re.compile(r"(.*)\.(q|k|v)_proj\.(weight|bias)")
-    out_proj_pattern = re.compile(r"(.*)\.o_proj\.(weight|bias)")
-
-    keys_to_remove = []
-    for key, value in state_dict.items():
-        qkv_match = qkv_pattern.match(key)
-        out_match = out_proj_pattern.match(key)
-        if qkv_match:
-            base_path, proj_type, param_type = qkv_match.groups()
-
-            if base_path not in mha_buffers:
-                mha_buffers[base_path] = {'weight': {}, 'bias': {}}
-
-            mha_buffers[base_path][param_type][proj_type] = value
-
-        elif out_match:
-            base_path, param_type = out_match.groups()
-            new_key = f"{base_path}.out_proj.{param_type}"
-            converted_dict[new_key] = value
-
-        else:
-            converted_dict[key] = value
-
-    count_converted = 0
-    for base_path, params in mha_buffers.items():
-        if all(k in params['weight'] for k in ['q', 'k', 'v']):
-            combined_weight = torch.cat([
-                params['weight']['q'],
-                params['weight']['k'],
-                params['weight']['v']
-            ], dim=0)
-            converted_dict[f"{base_path}.in_proj_weight"] = combined_weight
-            count_converted += 1
-
-        if all(k in params['bias'] for k in ['q', 'k', 'v']):
-            combined_bias = torch.cat([
-                params['bias']['q'],
-                params['bias']['k'],
-                params['bias']['v']
-            ], dim=0)
-            converted_dict[f"{base_path}.in_proj_bias"] = combined_bias
-
-    logger.info(f"Converted {count_converted} attn blocks from explicit to MultiheadAttention.")
-    return converted_dict
 ADAPTER_PRESETS = {
     "gemma": {
         "llm_dim": 1152,
@@ -123,7 +65,6 @@ class LLMAdapterLoader:
             "optional": {
                 "device": (device_types, {"default": "auto"}),
                 "force_reload": ("BOOLEAN", {"default": False}),
-                "explicit_attention": ("BOOLEAN", {"default": False}),
             },
         }
 
@@ -172,7 +113,7 @@ class LLMAdapterLoader:
             torch.cuda.empty_cache()
             torch.cuda.synchronize()
 
-    def load_adapter(self, adapter_name, type, device="auto", force_reload=False, explicit_attention=False):
+    def load_adapter(self, adapter_name, type, device="auto", force_reload=False):
         """Load and initialize the LLM to SDXL adapter"""
         if device == "auto":
             device = self.device
@@ -211,6 +152,20 @@ class LLMAdapterLoader:
                 # Load checkpoint if file exists
                 if os.path.exists(adapter_path):
                     checkpoint = load_file(adapter_path)
+
+                    # Force converted adapter format only.
+                    # Converted checkpoints use explicit q/k/v proj keys.
+                    old_format_patterns = [
+                        ".attn.in_proj",
+                        ".attn.out_proj",
+                        "compression_attention.",
+                        "pooling_attention.",
+                    ]
+                    if any(any(p in k for p in old_format_patterns) for k in checkpoint.keys()):
+                        raise ValueError(
+                            "Detected legacy unconverted adapter keys. "
+                            "Please use a converted adapter safetensors file."
+                        )
 
                     # Temporary debugging mode: force strict load to surface key mismatches.
                     strict_load = True

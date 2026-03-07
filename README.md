@@ -5,10 +5,7 @@
 ## 说明
 1. 本项目需要转换后的rouwei Gemma Adapter的safetensors文件，请勿使用原版！！！  
 2. 建议使用flash attn2加速推理，强烈建议安装  
-3. 本项目合并了[
-lRemixl
-的explicit_attention loading](https://github.com/lRemixl/ComfyUI_LLM_SDXL_Adapter)，感谢他的共享
-4. 本项目推荐使用flash atten2 其他加速方式未测试，不保证效果，本项目没有严格测试，可能会有问题
+3. 本项目推荐使用flash atten2 其他加速方式未测试，不保证效果，本项目没有严格测试，可能会有问题
 
 ## 感谢原作者
 

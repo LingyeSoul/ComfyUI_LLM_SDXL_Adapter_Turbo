@@ -15,6 +15,7 @@ class ApplyLLMToSDXLAdapter:
             "required": {
                 "llm_hidden_states": ("LLM_HIDDEN_STATES",),
                 "llm_adapter": ("LLM_ADAPTER",),
+                "force_cpu_output": ("BOOLEAN", {"default": False}),
             }
         }
 
@@ -23,7 +24,7 @@ class ApplyLLMToSDXLAdapter:
     FUNCTION = "apply_adapter"
     CATEGORY = "llm_sdxl_turbo"
 
-    def apply_adapter(self, llm_hidden_states, llm_adapter):
+    def apply_adapter(self, llm_hidden_states, llm_adapter, force_cpu_output=False):
         """Apply the LLM to SDXL adapter transformation"""
         try:
             # Get adapter device and dtype
@@ -37,10 +38,13 @@ class ApplyLLMToSDXLAdapter:
             with torch.no_grad():
                 conditioning_gpu, pooled_gpu = llm_adapter(input_tensor)
 
-            # Move to CPU for ComfyUI compatibility
-            # This ensures conditioning is on the same device as standard CLIP conditioning
-            conditioning = conditioning_gpu.cpu().contiguous()
-            pooled_output = pooled_gpu.cpu().contiguous()
+            # Keep outputs on adapter device by default; optionally force CPU.
+            if force_cpu_output:
+                conditioning = conditioning_gpu.cpu().contiguous()
+                pooled_output = pooled_gpu.cpu().contiguous()
+            else:
+                conditioning = conditioning_gpu.contiguous()
+                pooled_output = pooled_gpu.contiguous()
 
             # Clean up GPU tensors
             del input_tensor, conditioning_gpu, pooled_gpu
@@ -60,6 +64,7 @@ class ApplyLLMToSDXLAdapter:
             # Prepare info
             info = (
                 f"Conditioning shape: {conditioning.shape}\n"
+                f"Output device: {conditioning.device}\n"
                 f"cond(mean/std/norm): {cond_mean:.6f}/{cond_std:.6f}/{cond_norm:.6f}\n"
                 f"pooled(mean/std/norm): {pooled_mean:.6f}/{pooled_std:.6f}/{pooled_norm:.6f}"
             )

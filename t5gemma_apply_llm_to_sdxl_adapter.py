@@ -16,6 +16,7 @@ class t5gemmaApplyLLMToSDXLAdapter:
                 "llm_hidden_states": ("LLM_HIDDEN_STATES",),
                 "llm_attention_mask": ("LLM_ATTENTION_MASK",),
                 "llm_adapter": ("LLM_ADAPTER",),
+                "force_cpu_output": ("BOOLEAN", {"default": False}),
             },
             "optional": {
                 "width": ("INT", {"default": 1024, "min": 64, "max": 8192, "step": 8}),
@@ -32,7 +33,7 @@ class t5gemmaApplyLLMToSDXLAdapter:
     CATEGORY = "llm_sdxl_turbo"
 
     def apply(self, llm_hidden_states, llm_attention_mask, llm_adapter,
-              width=None, height=None, target_width=None, target_height=None, crop_w=None, crop_h=None):
+              force_cpu_output=False, width=None, height=None, target_width=None, target_height=None, crop_w=None, crop_h=None):
         try:
             # Get adapter device and dtype
             adapter_device = next(llm_adapter.parameters()).device
@@ -45,9 +46,13 @@ class t5gemmaApplyLLMToSDXLAdapter:
             with torch.no_grad():
                 prompt_embeds_gpu, pooled_gpu = llm_adapter(llm_hidden_states, attention_mask=llm_attention_mask)
 
-            # Move to CPU for ComfyUI compatibility
-            prompt_embeds = prompt_embeds_gpu.cpu().contiguous()
-            pooled_output = pooled_gpu.cpu().contiguous()
+            # Keep outputs on adapter device by default; optionally force CPU.
+            if force_cpu_output:
+                prompt_embeds = prompt_embeds_gpu.cpu().contiguous()
+                pooled_output = pooled_gpu.cpu().contiguous()
+            else:
+                prompt_embeds = prompt_embeds_gpu.contiguous()
+                pooled_output = pooled_gpu.contiguous()
 
             meta = {"pooled_output": pooled_output}
             if width is not None and height is not None:

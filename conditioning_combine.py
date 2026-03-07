@@ -16,6 +16,8 @@ class LLMConditioningCombine:
             "required": {
                 "conditioning_1": ("CONDITIONING",),
                 "conditioning_2": ("CONDITIONING",),
+                "max_tokens": ("INT", {"default": 192, "min": 32, "max": 4096, "step": 8}),
+                "truncate_strategy": (["keep_start", "keep_end", "balanced"], {"default": "balanced"}),
             }
         }
 
@@ -23,7 +25,7 @@ class LLMConditioningCombine:
     FUNCTION = "combine"
     CATEGORY = "llm_sdxl_turbo"
 
-    def combine(self, conditioning_1, conditioning_2):
+    def combine(self, conditioning_1, conditioning_2, max_tokens=192, truncate_strategy="balanced"):
         """
         Combine two conditioning inputs.
         Both conditionings will be moved to the same device before concatenation.
@@ -38,11 +40,19 @@ class LLMConditioningCombine:
             cond_1_tensor, cond_1_meta = conditioning_1[0]
             cond_2_tensor, cond_2_meta = conditioning_2[0]
 
-            # Determine target device - use the device of the first conditioning
-            target_device = cond_1_tensor.device
+            # Prefer CUDA when available on either input to avoid unnecessary CPU fallback.
+            if cond_1_tensor.device.type == "cuda":
+                target_device = cond_1_tensor.device
+            elif cond_2_tensor.device.type == "cuda":
+                target_device = cond_2_tensor.device
+            else:
+                target_device = cond_1_tensor.device
             target_dtype = cond_1_tensor.dtype
 
-            # Move second conditioning to the same device and dtype as the first
+            # Move conditionings to the selected target device and dtype.
+            if cond_1_tensor.device != target_device or cond_1_tensor.dtype != target_dtype:
+                cond_1_tensor = cond_1_tensor.to(device=target_device, dtype=target_dtype)
+
             if cond_2_tensor.device != target_device:
                 logger.info(f"Moving conditioning_2 from {cond_2_tensor.device} to {target_device}")
                 cond_2_tensor = cond_2_tensor.to(device=target_device, dtype=target_dtype)
@@ -53,12 +63,54 @@ class LLMConditioningCombine:
             cond_1_tensor = cond_1_tensor.contiguous()
             cond_2_tensor = cond_2_tensor.contiguous()
 
-            # Concatenate the conditioning tensors along the sequence dimension (dim=1)
-            # Shape: [batch, seq_len, dim]
+            # Concatenate on sequence dimension then enforce an explicit token budget.
             combined_tensor = torch.cat([cond_1_tensor, cond_2_tensor], dim=1)
+
+            token_limit = int(max_tokens)
+            combined_tokens = combined_tensor.shape[1]
+            if combined_tokens > token_limit:
+                if truncate_strategy == "keep_start":
+                    combined_tensor = combined_tensor[:, :token_limit, :]
+                elif truncate_strategy == "keep_end":
+                    combined_tensor = combined_tensor[:, -token_limit:, :]
+                else:
+                    seq_len_1 = cond_1_tensor.shape[1]
+                    seq_len_2 = cond_2_tensor.shape[1]
+
+                    keep_1 = min(seq_len_1, token_limit // 2)
+                    keep_2 = min(seq_len_2, token_limit - keep_1)
+
+                    remaining = token_limit - (keep_1 + keep_2)
+                    if remaining > 0 and keep_1 < seq_len_1:
+                        extra_1 = min(seq_len_1 - keep_1, remaining)
+                        keep_1 += extra_1
+                        remaining -= extra_1
+                    if remaining > 0 and keep_2 < seq_len_2:
+                        keep_2 += min(seq_len_2 - keep_2, remaining)
+
+                    combined_tensor = torch.cat(
+                        [cond_1_tensor[:, :keep_1, :], cond_2_tensor[:, :keep_2, :]],
+                        dim=1,
+                    )
+
+                logger.info(
+                    "Token cap applied: %s -> %s (%s)",
+                    combined_tokens,
+                    combined_tensor.shape[1],
+                    truncate_strategy,
+                )
 
             # Merge metadata - pooled_output from the first conditioning takes precedence
             combined_meta = cond_1_meta.copy()
+
+            # Keep pooled output colocated with the combined tensor when present.
+            pooled_output = combined_meta.get("pooled_output")
+            if isinstance(pooled_output, torch.Tensor):
+                if pooled_output.device != target_device or pooled_output.dtype != target_dtype:
+                    combined_meta["pooled_output"] = pooled_output.to(
+                        device=target_device,
+                        dtype=target_dtype,
+                    )
             
             # If second conditioning has pooled_output, we keep the first one's
             # but log if they're different
@@ -80,7 +132,7 @@ class LLMConditioningCombine:
 
             logger.info(
                 f"Combined conditioning: {cond_1_tensor.shape} + {cond_2_tensor.shape} = {combined_tensor.shape} "
-                f"on device {target_device}"
+                f"on device {target_device} (max_tokens={token_limit}, strategy={truncate_strategy})"
             )
 
             return (combined_conditioning,)
@@ -102,6 +154,8 @@ class LLMConditioningConcat:
             "required": {
                 "conditioning_to": ("CONDITIONING",),
                 "conditioning_from": ("CONDITIONING",),
+                "max_tokens": ("INT", {"default": 192, "min": 32, "max": 4096, "step": 8}),
+                "truncate_strategy": (["keep_start", "keep_end", "balanced"], {"default": "balanced"}),
             }
         }
 
@@ -109,7 +163,7 @@ class LLMConditioningConcat:
     FUNCTION = "concat"
     CATEGORY = "llm_sdxl_turbo"
 
-    def concat(self, conditioning_to, conditioning_from):
+    def concat(self, conditioning_to, conditioning_from, max_tokens=192, truncate_strategy="balanced"):
         """
         Concatenate conditioning_from to conditioning_to.
         This is functionally similar to combine but follows ComfyUI's concat convention.
@@ -124,11 +178,19 @@ class LLMConditioningConcat:
             to_tensor, to_meta = conditioning_to[0]
             from_tensor, from_meta = conditioning_from[0]
 
-            # Determine target device - use the device of conditioning_to
-            target_device = to_tensor.device
+            # Prefer CUDA when either input is on GPU to avoid CPU demotion.
+            if to_tensor.device.type == "cuda":
+                target_device = to_tensor.device
+            elif from_tensor.device.type == "cuda":
+                target_device = from_tensor.device
+            else:
+                target_device = to_tensor.device
             target_dtype = to_tensor.dtype
 
-            # Move from_tensor to the same device and dtype
+            # Move both tensors to the selected device and dtype.
+            if to_tensor.device != target_device or to_tensor.dtype != target_dtype:
+                to_tensor = to_tensor.to(device=target_device, dtype=target_dtype)
+
             if from_tensor.device != target_device:
                 logger.info(f"Moving conditioning_from from {from_tensor.device} to {target_device}")
                 from_tensor = from_tensor.to(device=target_device, dtype=target_dtype)
@@ -142,8 +204,51 @@ class LLMConditioningConcat:
             # Concatenate along sequence dimension
             concat_tensor = torch.cat([to_tensor, from_tensor], dim=1)
 
+            token_limit = int(max_tokens)
+            concat_tokens = concat_tensor.shape[1]
+            if concat_tokens > token_limit:
+                if truncate_strategy == "keep_start":
+                    concat_tensor = concat_tensor[:, :token_limit, :]
+                elif truncate_strategy == "keep_end":
+                    concat_tensor = concat_tensor[:, -token_limit:, :]
+                else:
+                    seq_len_to = to_tensor.shape[1]
+                    seq_len_from = from_tensor.shape[1]
+
+                    keep_to = min(seq_len_to, token_limit // 2)
+                    keep_from = min(seq_len_from, token_limit - keep_to)
+
+                    remaining = token_limit - (keep_to + keep_from)
+                    if remaining > 0 and keep_to < seq_len_to:
+                        extra_to = min(seq_len_to - keep_to, remaining)
+                        keep_to += extra_to
+                        remaining -= extra_to
+                    if remaining > 0 and keep_from < seq_len_from:
+                        keep_from += min(seq_len_from - keep_from, remaining)
+
+                    concat_tensor = torch.cat(
+                        [to_tensor[:, :keep_to, :], from_tensor[:, :keep_from, :]],
+                        dim=1,
+                    )
+
+                logger.info(
+                    "Token cap applied in concat: %s -> %s (%s)",
+                    concat_tokens,
+                    concat_tensor.shape[1],
+                    truncate_strategy,
+                )
+
             # Use metadata from conditioning_to (the base)
             concat_meta = to_meta.copy()
+
+            # Keep pooled_output colocated with the concatenated tensor when present.
+            pooled_output = concat_meta.get("pooled_output")
+            if isinstance(pooled_output, torch.Tensor):
+                if pooled_output.device != target_device or pooled_output.dtype != target_dtype:
+                    concat_meta["pooled_output"] = pooled_output.to(
+                        device=target_device,
+                        dtype=target_dtype,
+                    )
 
             # Handle SDXL-specific metadata
             for key in ["width", "height", "target_width", "target_height", "crop_w", "crop_h"]:
@@ -154,7 +259,7 @@ class LLMConditioningConcat:
 
             logger.info(
                 f"Concatenated conditioning: {to_tensor.shape} + {from_tensor.shape} = {concat_tensor.shape} "
-                f"on device {target_device}"
+                f"on device {target_device} (max_tokens={token_limit}, strategy={truncate_strategy})"
             )
 
             return (concat_conditioning,)

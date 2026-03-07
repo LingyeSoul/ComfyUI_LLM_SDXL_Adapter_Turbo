@@ -107,6 +107,7 @@ class LLMModelLoader:
             "optional": {
                 "device": (["auto", "cuda:0", "cuda:1", "cpu"], {"default": "auto"}),
                 "attention_backend": (attention_backends, {"default": "auto"}),
+                "hidden_state_only": ("BOOLEAN", {"default": True}),
                 "force_reload": ("BOOLEAN", {"default": False}),
             },
         }
@@ -146,7 +147,7 @@ class LLMModelLoader:
             torch.cuda.empty_cache()
             torch.cuda.synchronize()
 
-    def load_model(self, model_name, device="auto", attention_backend="auto", force_reload=False):
+    def load_model(self, model_name, device="auto", attention_backend="auto", hidden_state_only=True, force_reload=False):
         """Load Language Model and tokenizer"""
         if device == "auto":
             device = self.device
@@ -178,16 +179,29 @@ class LLMModelLoader:
 
                 logger.info(f"Loading Language Model from {model_path}")
 
-                self.model = AutoModelForCausalLM.from_pretrained(
-                    model_path,
-                    torch_dtype=torch.bfloat16,
-                    device_map=device_map,
-                    output_hidden_states=True,
-                    trust_remote_code=True,
-                    attn_implementation=attn_implementation,
-                )
+                # Always use compatibility implementation for stable adapter quality.
+                model_cls = AutoModelForCausalLM
+
+                model_kwargs = {
+                    "torch_dtype": torch.bfloat16,
+                    "device_map": device_map,
+                    "trust_remote_code": True,
+                    "attn_implementation": attn_implementation,
+                }
+                # Keep compatibility with legacy path that expects hidden_states in outputs.
+                model_kwargs["output_hidden_states"] = True
+
+                self.model = model_cls.from_pretrained(model_path, **model_kwargs)
+
+                # Hidden-state-only inference path.
+                self.model.eval()
+                self.model.requires_grad_(False)
+                self.model._llm_sdxl_hidden_state_only = bool(hidden_state_only)
+                self.model._llm_sdxl_hidden_state_only_impl = "compat"
 
                 logger.info(f"Using attention implementation: {attn_implementation}")
+                logger.info(f"Hidden-state-only load path: {hidden_state_only}")
+                logger.info("Hidden-state-only implementation: compat")
 
                 self.tokenizer = AutoTokenizer.from_pretrained(
                     model_path, trust_remote_code=True
@@ -204,6 +218,8 @@ class LLMModelLoader:
                 f"Model: {model_path}\n"
                 f"Device: {device}\n"
                 f"Attention: {attn_implementation}\n"
+                f"hidden_state_only: {hidden_state_only}\n"
+                f"hidden_state_only_impl: compat\n"
                 f"model_type: {model_type}\n"
                 f"hidden_size: {hidden_size}\n"
                 f"num_hidden_layers: {num_hidden_layers}\n"
