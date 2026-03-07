@@ -11,7 +11,7 @@ from typing import Dict, Tuple
 
 # Setup logging
 logger = logging.getLogger("LLM-SDXL-Adapter")
-logger.setLevel(logging.WARN)
+logger.setLevel(logging.INFO)
 
 # Add custom formatter with module prefix
 if not logger.handlers:

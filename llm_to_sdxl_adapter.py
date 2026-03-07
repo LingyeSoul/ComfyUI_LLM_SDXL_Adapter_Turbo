@@ -36,16 +36,18 @@ def convert_mha_to_separate_qkv(state_dict):
     - attention.{block_idx}.out_proj.weight (dim, dim)
     """
     converted_dict = {}
-    mha_pattern = re.compile(r"(.*)\.attn\.(in_proj|out_proj)_(weight|bias)")
+    # Support both formats: in_proj_weight (underscore) and in_proj.weight (dot)
+    # Only match attention blocks, not compression_attention or pooling_attention
+    mha_pattern = re.compile(r"(.*?)\.attn\.(in_proj|out_proj)[_\.](weight|bias)")
 
-    keys_to_remove = set()
-    converted_blocks = 0
+    converted_blocks = set()
+    converted_special_blocks = set()  # Track compression and pooling blocks
 
     for key, value in state_dict.items():
         match = mha_pattern.match(key)
         if match:
             base_path, proj_type, param_type = match.groups()
-            keys_to_remove.add(key)
+            converted_blocks.add(base_path)
 
             if proj_type == "in_proj":
                 # Split in_proj_weight/in_proj_bias into q, k, v
@@ -66,62 +68,85 @@ def convert_mha_to_separate_qkv(state_dict):
                     converted_dict[f"{base_path}.v_proj.bias"] = v_bias
             else:  # out_proj
                 converted_dict[f"{base_path}.out_proj.{param_type}"] = value
-
-            converted_blocks += 1
         else:
-            # Check for compression_attention and pooling_attention
-            if "compression_attention.in_proj" in key:
-                new_key = key.replace("compression_attention.in_proj", "compression_q_proj")
-                new_key = new_key.replace(".weight", "_.weight")
-                if "k_proj" not in new_key and "v_proj" not in new_key:
-                    dim = value.shape[0] // 3
-                    if ".weight" in new_key:
-                        new_key = new_key.replace("_weight", "_q_proj.weight")
-                        converted_dict[new_key] = value[:dim]
-                        converted_dict[new_key.replace("_q_proj", "_k_proj")] = value[dim:2*dim]
-                        converted_dict[new_key.replace("_q_proj", "_v_proj")] = value[2*dim:]
-                    else:
-                        new_key = new_key.replace("_bias", "_q_proj.bias")
-                        converted_dict[new_key] = value[:dim]
-                        converted_dict[new_key.replace("_q_proj", "_k_proj")] = value[dim:2*dim]
-                        converted_dict[new_key.replace("_q_proj", "_v_proj")] = value[2*dim:]
+            # Check for compression_attention and pooling_attention (q_proj/k_proj/v_proj format)
+            # Handle format: compression_attention.q_proj.weight -> compression_q_proj.weight
+            if "compression_attention.q_proj" in key:
+                new_key = key.replace("compression_attention.q_proj", "compression_q_proj")
+                converted_dict[new_key] = value
+                converted_special_blocks.add("compression")
                 continue
-            elif "compression_attention.in_proj_weight" in key:
-                dim = value.shape[0] // 3
-                converted_dict[key.replace("compression_attention.in_proj_weight", "compression_q_proj_weight")] = value[:dim]
-                converted_dict[key.replace("compression_attention.in_proj_weight", "compression_k_proj_weight")] = value[dim:2*dim]
-                converted_dict[key.replace("compression_attention.in_proj_weight", "compression_v_proj_weight")] = value[2*dim:]
+            elif "compression_attention.k_proj" in key:
+                new_key = key.replace("compression_attention.k_proj", "compression_k_proj")
+                converted_dict[new_key] = value
+                converted_special_blocks.add("compression")
                 continue
-            elif "compression_attention.in_proj_bias" in key:
-                dim = value.shape[0] // 3
-                converted_dict[key.replace("compression_attention.in_proj_bias", "compression_q_proj_bias")] = value[:dim]
-                converted_dict[key.replace("compression_attention.in_proj_bias", "compression_k_proj_bias")] = value[dim:2*dim]
-                converted_dict[key.replace("compression_attention.in_proj_bias", "compression_v_proj_bias")] = value[2*dim:]
+            elif "compression_attention.v_proj" in key:
+                new_key = key.replace("compression_attention.v_proj", "compression_v_proj")
+                converted_dict[new_key] = value
+                converted_special_blocks.add("compression")
                 continue
             elif "compression_attention.out_proj" in key:
                 new_key = key.replace("compression_attention.out_proj", "compression_out_proj")
                 converted_dict[new_key] = value
+                converted_special_blocks.add("compression")
                 continue
-            elif "pooling_attention.in_proj" in key:
-                dim = value.shape[0] // 3
-                if ".weight" in key:
-                    converted_dict[key.replace("pooling_attention.in_proj_weight", "pooling_q_proj_weight")] = value[:dim]
-                    converted_dict[key.replace("pooling_attention.in_proj_weight", "pooling_k_proj_weight")] = value[dim:2*dim]
-                    converted_dict[key.replace("pooling_attention.in_proj_weight", "pooling_v_proj_weight")] = value[2*dim:]
-                else:
-                    converted_dict[key.replace("pooling_attention.in_proj_bias", "pooling_q_proj_bias")] = value[:dim]
-                    converted_dict[key.replace("pooling_attention.in_proj_bias", "pooling_k_proj_bias")] = value[dim:2*dim]
-                    converted_dict[key.replace("pooling_attention.in_proj_bias", "pooling_v_proj_bias")] = value[2*dim:]
+            # Handle format: pooling_attention.q_proj.weight -> pooling_q_proj.weight
+            elif "pooling_attention.q_proj" in key:
+                new_key = key.replace("pooling_attention.q_proj", "pooling_q_proj")
+                converted_dict[new_key] = value
+                converted_special_blocks.add("pooling")
+                continue
+            elif "pooling_attention.k_proj" in key:
+                new_key = key.replace("pooling_attention.k_proj", "pooling_k_proj")
+                converted_dict[new_key] = value
+                converted_special_blocks.add("pooling")
+                continue
+            elif "pooling_attention.v_proj" in key:
+                new_key = key.replace("pooling_attention.v_proj", "pooling_v_proj")
+                converted_dict[new_key] = value
+                converted_special_blocks.add("pooling")
                 continue
             elif "pooling_attention.out_proj" in key:
                 new_key = key.replace("pooling_attention.out_proj", "pooling_out_proj")
                 converted_dict[new_key] = value
+                converted_special_blocks.add("pooling")
+                continue
+            # Check for compression_attention and pooling_attention (in_proj format - older format)
+            elif "compression_attention.in_proj_weight" in key:
+                dim = value.shape[0] // 3
+                converted_dict[key.replace("compression_attention.in_proj_weight", "compression_q_proj.weight")] = value[:dim]
+                converted_dict[key.replace("compression_attention.in_proj_weight", "compression_k_proj.weight")] = value[dim:2*dim]
+                converted_dict[key.replace("compression_attention.in_proj_weight", "compression_v_proj.weight")] = value[2*dim:]
+                converted_special_blocks.add("compression")
+                continue
+            elif "compression_attention.in_proj_bias" in key:
+                dim = value.shape[0] // 3
+                converted_dict[key.replace("compression_attention.in_proj_bias", "compression_q_proj.bias")] = value[:dim]
+                converted_dict[key.replace("compression_attention.in_proj_bias", "compression_k_proj.bias")] = value[dim:2*dim]
+                converted_dict[key.replace("compression_attention.in_proj_bias", "compression_v_proj.bias")] = value[2*dim:]
+                converted_special_blocks.add("compression")
+                continue
+            elif "pooling_attention.in_proj_weight" in key:
+                dim = value.shape[0] // 3
+                converted_dict[key.replace("pooling_attention.in_proj_weight", "pooling_q_proj.weight")] = value[:dim]
+                converted_dict[key.replace("pooling_attention.in_proj_weight", "pooling_k_proj.weight")] = value[dim:2*dim]
+                converted_dict[key.replace("pooling_attention.in_proj_weight", "pooling_v_proj.weight")] = value[2*dim:]
+                converted_special_blocks.add("pooling")
+                continue
+            elif "pooling_attention.in_proj_bias" in key:
+                dim = value.shape[0] // 3
+                converted_dict[key.replace("pooling_attention.in_proj_bias", "pooling_q_proj.bias")] = value[:dim]
+                converted_dict[key.replace("pooling_attention.in_proj_bias", "pooling_k_proj.bias")] = value[dim:2*dim]
+                converted_dict[key.replace("pooling_attention.in_proj_bias", "pooling_v_proj.bias")] = value[2*dim:]
+                converted_special_blocks.add("pooling")
                 continue
             else:
                 converted_dict[key] = value
 
-    if converted_blocks > 0 or any("compression_attention" in k or "pooling_attention" in k for k in state_dict.keys()):
-        logger.info(f"Converted {converted_blocks} attention blocks from MHA to separate QKV format")
+    total_converted = len(converted_blocks) + len(converted_special_blocks)
+    if total_converted > 0:
+        logger.info(f"Converted {total_converted} attention blocks from MHA to separate QKV format")
 
     return converted_dict
 
@@ -416,3 +441,13 @@ class LLMToSDXLAdapter(nn.Module):
         pooled_output = self.pooled_projection(pooled_output)
 
         return compressed_sequence, pooled_output
+
+    def load_state_dict(self, state_dict, strict=True):
+        """
+        Override load_state_dict to automatically convert MHA format weights
+        to separate QKV format for backward compatibility.
+        """
+        # Convert state dict if it contains MHA format weights
+        converted_state_dict = convert_mha_to_separate_qkv(state_dict)
+        # Call parent load_state_dict with converted weights
+        return super().load_state_dict(converted_state_dict, strict=strict)

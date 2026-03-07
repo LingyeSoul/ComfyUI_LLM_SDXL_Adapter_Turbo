@@ -7,6 +7,27 @@ from .utils import get_llm_ggufs, get_llm_gguf_path
 logger = logging.getLogger("LLM-SDXL-Adapter")
 
 
+def _get_attention_implementation(backend="auto"):
+    """
+    Get the attention implementation based on backend selection.
+
+    Args:
+        backend: One of "auto", "eager", "sdpa", "flash_attention_2"
+
+    Returns:
+        Tuple of (implementation_name, available)
+    """
+    if backend == "auto":
+        if hasattr(torch, 'compile'):
+            try:
+                return "sdpa", True
+            except Exception:
+                pass
+        return "eager", True
+
+    return backend, True
+
+
 class LLMGGUFModelLoader:
     """
     ComfyUI node that loads Language Model and tokenizer
@@ -22,12 +43,14 @@ class LLMGGUFModelLoader:
     @classmethod
     def INPUT_TYPES(cls):
         ggufs = get_llm_ggufs()
+        attention_backends = ["auto", "eager", "sdpa", "flash_attention_2"]
         return {
             "required": {
                 "model_name": (ggufs, {"default": ggufs[0] if ggufs else None}),
             },
             "optional": {
                 "device": (["auto", "cuda:0", "cuda:1", "cpu"], {"default": "auto"}),
+                "attention_backend": (attention_backends, {"default": "auto"}),
                 "force_reload": ("BOOLEAN", {"default": False}),
             },
         }
@@ -67,10 +90,15 @@ class LLMGGUFModelLoader:
             torch.cuda.empty_cache()
             torch.cuda.synchronize()
 
-    def load_model(self, model_name, device="auto", force_reload=False):
+    def load_model(self, model_name, device="auto", attention_backend="auto", force_reload=False):
         """Load Language Model and tokenizer"""
         if device == "auto":
             device = self.device
+
+        if attention_backend == "auto":
+            attention_backend = _get_attention_implementation("auto")[0]
+
+        attn_implementation = attention_backend
 
         # Convert device to proper device_map format
         if device in ["cuda:0", "cuda:1"]:
@@ -101,7 +129,10 @@ class LLMGGUFModelLoader:
                     device_map=device_map,
                     output_hidden_states=True,
                     trust_remote_code=True,
+                    attn_implementation=attn_implementation,
                 )
+
+                logger.info(f"Using attention implementation: {attn_implementation}")
 
                 # Load tokenizer from the same model path with GGUF file
                 self.tokenizer = AutoTokenizer.from_pretrained(
@@ -111,7 +142,7 @@ class LLMGGUFModelLoader:
                 self.current_model_path = model_path
                 logger.info("Language Model loaded successfully")
 
-            info = f"Model: {model_path}\nDevice: {device}\nLoaded: {self.model is not None}"
+            info = f"Model: {model_path}\nDevice: {device}\nAttention: {attn_implementation}\nLoaded: {self.model is not None}"
 
             return (self.model, self.tokenizer, info)
 

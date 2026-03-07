@@ -5,7 +5,7 @@ import gc
 import os
 import re
 from .utils import get_llm_adapters, get_llm_adapter_path
-from .llm_to_sdxl_adapter import LLMToSDXLAdapter, convert_mha_to_separate_qkv
+from .llm_to_sdxl_adapter import LLMToSDXLAdapter
 
 logger = logging.getLogger("LLM-SDXL-Adapter")
 
@@ -212,21 +212,10 @@ class LLMAdapterLoader:
                 if os.path.exists(adapter_path):
                     checkpoint = load_file(adapter_path)
 
-                    # Check if checkpoint uses old MultiheadAttention format
-                    has_mha_weights = any(
-                        ".attn.in_proj" in k or
-                        "compression_attention.in_proj" in k or
-                        "pooling_attention.in_proj" in k
-                        for k in checkpoint.keys()
-                    )
-
-                    if has_mha_weights:
-                        logger.info("Converting MHA weights to separate QKV format for Flash Attention...")
-                        checkpoint = convert_mha_to_separate_qkv(checkpoint)
-
                     # Check if checkpoint contains input_norm keys (for backward compatibility)
                     strict_load = not any("input_norm" in k for k in checkpoint.keys())
 
+                    # Load checkpoint - model will auto-convert MHA format if needed
                     self.adapter.load_state_dict(checkpoint, strict=strict_load)
                     logger.info(f"Loaded adapter weights from {adapter_path}")
                 else:
