@@ -1,52 +1,43 @@
-# ComfyUI LLM SDXL Adapter
+# ComfyUI LLM SDXL Adapter Turbo
 
-![Version](https://img.shields.io/badge/version-3.0.1-blue.svg)
-![License](https://img.shields.io/badge/license-MIT-green.svg)
-![Python](https://img.shields.io/badge/python-3.8+-blue.svg)
-![ComfyUI](https://img.shields.io/badge/ComfyUI-compatible-orange.svg)
+## 本项目仅保留本项目描述，原始描述和更多说明请查看[ComfyUI_LLM_SDXL_Adapter](https://github.com/NeuroSenko/ComfyUI_LLM_SDXL_Adapter)
 
-A comprehensive set of ComfyUI nodes for using Large Language Models (LLM) as text encoders for SDXL image generation through a trained adapter.
+## 说明
+1. 本项目需要转换后的rouwei Gemma Adapter的safetensors文件，请勿使用原版！！！  
+2. 建议使用flash attn2加速推理，强烈建议安装  
+3. 本修改版在作者的4060laptop上，耗时从原本多花40多秒，降低到多花几秒（1536x1024分辨率，30步）  
+4. 本项目合并了[
+lRemixl
+的explicit_attention loading](https://github.com/lRemixl/ComfyUI_LLM_SDXL_Adapter)，感谢他的共享
+5. 本项目推荐使用flash atten2 其他加速方式未测试，不保证效果，本项目没有严格测试，可能会有问题
 
-<img width="1803" height="904" alt="image" src="https://github.com/user-attachments/assets/e8e5f047-37e7-4f8b-9bbd-78d70e2a7d80" />
+## 感谢原作者
 
-[Image with workflow](https://files.catbox.moe/om6tc4.png)
+## 🎯 rouwei Gemma Adapter
 
+**下载链接：**
+- [HuggingFace 仓库](https://huggingface.co/lingyesoul/rouweiGemmaAdapter_converted)
 
-## 🎯 Available Adapters
-
-### RouWei-Gemma Adapter 
-Trained adapter for using Gemma-3-1b as text encoder for [Rouwei v0.8](https://civitai.com/models/950531) (vpred or epsilon or [base](https://huggingface.co/Minthy/RouWei-0.8/blob/main/rouwei_080_base_fp16.safetensors)).
-
-**Download Links:**
-- [CivitAI Model](https://civitai.com/models/1782437)
-- [HuggingFace Repository](https://huggingface.co/Minthy/RouWei-Gemma)
-
-## 📦 Installation
-### Install Nodes
-1. Clone the repository to `ComfyUI/custom_nodes/`:
+## 📦 安装
+### 安装节点
+1. 将仓库克隆到 `ComfyUI/custom_nodes/`：
 ```bash
 cd ComfyUI/custom_nodes/
-git clone https://github.com/NeuroSenko/ComfyUI_LLM_SDXL_Adapter.git
+git clone https://github.com/LingyeSoul/ComfyUI_LLM_SDXL_Adapter_Turbo.git
 ```
+3. 安装flash attn2
+这有助于加速推理，强烈建议安装  
 
-2. Restart ComfyUI
+2. 重启 ComfyUI
 
-### Setup RouWei-Gemma Adapter
+### 设置 RouWei-Gemma 适配器
 
-1. **Download the adapter:**
-   - Download from [CivitAI](https://civitai.com/models/1782437) or [HuggingFace](https://huggingface.co/Minthy/RouWei-Gemma)
-   - Place the adapter file in `ComfyUI/models/llm_adapters/`
+1. **下载适配器：**
+   - [HuggingFace 仓库](https://huggingface.co/lingyesoul/rouweiGemmaAdapter_converted) 下载
+   - 将适配器文件放入 `ComfyUI/models/llm_adapters/`
 
-2. **Download Gemma-3-1b-it model:**
-   - Download [gemma-3-1b-it](https://huggingface.co/google/gemma-3-1b-it) ([non-gated mirror](https://huggingface.co/unsloth/gemma-3-1b-it))
-   - Place in `ComfyUI/models/llm/gemma-3-1b-it/`
-   - **Note:** You need ALL files from the original model for proper functionality (not just .safetensors)
 
-3. **Download Rouwei checkpoint:**
-   - Get [Rouwei v0.8](https://civitai.com/models/950531) (vpred, epsilon, or [base](https://huggingface.co/Minthy/RouWei-0.8/blob/main/rouwei_080_base_fp16.safetensors)) if you don't have it
-   - Place in your regular ComfyUI checkpoints folder
-
-## 📁 File Structure Example
+## 📁 文件结构示例
 
 ```
 ComfyUI/models/
@@ -60,17 +51,15 @@ ComfyUI/models/
 │   ├── tokenizer.model
 │   └── tokenizer_config.json
 ├── llm_adapters/
-│   └── rouweiGemma_g31b27k.safetensors
-└── checkpoints/
-    └── rouwei_v0.8_vpred.safetensors
+│   └── rouweiGemmaAdapter_converted.safetensors
 ```
 
-## 🔍 Debugging
+## 🔍 调试
 
-To enable detailed logging, edit `__init__.py`:
+要启用详细日志记录，编辑 `__init__.py`：
 ```python
-# Change from:
+# 从：
 logger.setLevel(logging.WARN)
-# To:
+# 改为：
 logger.setLevel(logging.INFO)
 ```
