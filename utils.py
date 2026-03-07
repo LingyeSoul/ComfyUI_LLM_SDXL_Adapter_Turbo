@@ -3,7 +3,7 @@ import time
 import logging
 import folder_paths
 
-logger = logging.getLogger("LLM-SDXL-Adapter")
+logger = logging.getLogger("LLM-SDXL-Adapter-Turbo")
 
 # Cache for file system scans
 _CACHE = {}

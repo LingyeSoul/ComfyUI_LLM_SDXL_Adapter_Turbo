@@ -10,13 +10,13 @@ import os
 from typing import Dict, Tuple
 
 # Setup logging
-logger = logging.getLogger("LLM-SDXL-Adapter")
+logger = logging.getLogger("LLM-SDXL-Adapter-Turbo")
 logger.setLevel(logging.INFO)
 
 # Add custom formatter with module prefix
 if not logger.handlers:
     handler = logging.StreamHandler()
-    formatter = logging.Formatter('[LLM-SDXL-Adapter] %(levelname)s: %(message)s')
+    formatter = logging.Formatter('[LLM-SDXL-Adapter-Turbo] %(levelname)s: %(message)s')
     handler.setFormatter(formatter)
     logger.addHandler(handler)
     logger.propagate = False  # Prevent duplicate logs from parent loggers
@@ -171,7 +171,7 @@ __all__ = [
 
 # Print initialization message
 print(f"\n{'='*60}")
-print(f"  ComfyUI LLM SDXL Adapter v{__version__} - Loaded Successfully")
+print(f"  ComfyUI LLM SDXL Adapter Turbo v{__version__} - Loaded Successfully")
 print(f"{'='*60}")
 print(f"  Available Nodes: {len(NODE_CLASS_MAPPINGS)}")
 print(f"  Main Workflow: LLMModelLoader -> LLMTextEncoder -> LLMAdapterLoader -> ApplyLLMToSDXLAdapter -> KSampler")

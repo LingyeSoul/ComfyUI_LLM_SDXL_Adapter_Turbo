@@ -4,7 +4,7 @@ import gc
 import logging
 from .utils import get_llm_ggufs, get_llm_gguf_path
 
-logger = logging.getLogger("LLM-SDXL-Adapter")
+logger = logging.getLogger("LLM-SDXL-Adapter-Turbo")
 
 
 def _get_attention_implementation(backend="auto"):

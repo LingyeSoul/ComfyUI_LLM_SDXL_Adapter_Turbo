@@ -2,7 +2,7 @@ import torch
 import gc
 import logging
 
-logger = logging.getLogger("LLM-SDXL-Adapter")
+logger = logging.getLogger("LLM-SDXL-Adapter-Turbo")
 
 
 class ApplyLLMToSDXLAdapter:

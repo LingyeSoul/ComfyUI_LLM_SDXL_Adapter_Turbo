@@ -7,7 +7,7 @@ import re
 from .utils import get_llm_adapters, get_llm_adapter_path
 from .llm_to_sdxl_adapter import LLMToSDXLAdapter
 
-logger = logging.getLogger("LLM-SDXL-Adapter")
+logger = logging.getLogger("LLM-SDXL-Adapter-Turbo")
 
 
 def convert_explicit_adapter_to_mha(state_dict):

@@ -4,7 +4,7 @@ import torch.nn.functional as F
 import logging
 import re
 
-logger = logging.getLogger("LLM-SDXL-Adapter")
+logger = logging.getLogger("LLM-SDXL-Adapter-Turbo")
 
 # Enable Flash Attention and Memory-Efficient attention backends
 def _enable_flash_attention():

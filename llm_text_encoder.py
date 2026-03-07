@@ -1,7 +1,7 @@
 import torch
 import logging
 
-logger = logging.getLogger("LLM-SDXL-Adapter")
+logger = logging.getLogger("LLM-SDXL-Adapter-Turbo")
 
 
 class LLMTextEncoder:
