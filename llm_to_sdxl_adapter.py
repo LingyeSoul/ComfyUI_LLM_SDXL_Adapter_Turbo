@@ -215,7 +215,8 @@ class TransformerBlock(nn.Module):
         if mask is not None:
             # Convert padding mask to attention mask format
             # mask: (B, N) where 1 = valid, 0 = padding
-            # We need: (B, 1, 1, N) where True = valid
+            # scaled_dot_product_attention: True = keep, False = mask out
+            # So we need to invert the mask: padding positions (0) should be False
             attn_mask = mask.unsqueeze(1).unsqueeze(2).bool()
 
         # Use scaled_dot_product_attention (Flash Attention when available)

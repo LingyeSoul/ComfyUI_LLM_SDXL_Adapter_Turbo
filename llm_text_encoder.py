@@ -78,8 +78,8 @@ class LLMTextEncoder:
                 outputs = model(**inputs)
                 
             # Extract hidden states, skipping first tokens
-            # Use contiguous() to ensure memory layout without forcing FP32 conversion
-            hidden_states = outputs['hidden_states'][-1][:, skip_first:, :].contiguous()
+            # Convert to float32 for consistent processing with the adapter
+            hidden_states = outputs['hidden_states'][-1][:, skip_first:, :].to(torch.float).contiguous()
             # Prepare info
             info = f"Text: {text[:50]}...\nTokens after skip: {hidden_states.shape[1]}\nShape: {hidden_states.shape}"
             
