@@ -43,11 +43,11 @@ class t5gemmaApplyLLMToSDXLAdapter:
             llm_attention_mask = llm_attention_mask.to(device=adapter_device)
 
             with torch.no_grad():
-                prompt_embeds, pooled_output = llm_adapter(llm_hidden_states, attention_mask=llm_attention_mask)
+                prompt_embeds_gpu, pooled_gpu = llm_adapter(llm_hidden_states, attention_mask=llm_attention_mask)
 
-            # Use the same device as the adapter for consistency
-            prompt_embeds = prompt_embeds.contiguous()
-            pooled_output = pooled_output.contiguous()
+            # Move to CPU for ComfyUI compatibility
+            prompt_embeds = prompt_embeds_gpu.cpu().contiguous()
+            pooled_output = pooled_gpu.cpu().contiguous()
 
             meta = {"pooled_output": pooled_output}
             if width is not None and height is not None:

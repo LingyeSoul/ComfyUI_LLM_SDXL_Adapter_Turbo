@@ -37,20 +37,20 @@ class ApplyLLMToSDXLAdapter:
             with torch.no_grad():
                 conditioning_gpu, pooled_gpu = llm_adapter(input_tensor)
 
-            # Use the same device as the adapter for consistency
-            # This helps avoid device mismatch when merging with other conditioning
-            conditioning = conditioning_gpu.contiguous()
-            pooled_output = pooled_gpu.contiguous()
+            # Move to CPU for ComfyUI compatibility
+            # This ensures conditioning is on the same device as standard CLIP conditioning
+            conditioning = conditioning_gpu.cpu().contiguous()
+            pooled_output = pooled_gpu.cpu().contiguous()
 
-            # Clean up input tensor
-            del input_tensor
+            # Clean up GPU tensors
+            del input_tensor, conditioning_gpu, pooled_gpu
 
             # Format conditioning for ComfyUI
             # ComfyUI expects conditioning as a list of [cond_tensor, metadata_dict] tuples
             comfy_conditioning = [[conditioning, {"pooled_output": pooled_output}]]
 
             # Prepare info
-            info = f"Conditioning shape: {conditioning.shape}, device: {conditioning.device}"
+            info = f"Conditioning shape: {conditioning.shape}"
 
             logger.info(f"Applied LLM to SDXL adapter: {info}")
 
