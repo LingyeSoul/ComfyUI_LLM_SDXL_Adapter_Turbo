@@ -6,6 +6,8 @@
 1. 本项目需要转换后的rouwei Gemma Adapter的safetensors文件，请勿使用原版！！！  
 2. 建议使用flash attn2加速推理，强烈建议安装  
 3. 本项目推荐使用flash atten2 其他加速方式未测试，不保证效果，本项目没有严格测试，可能会有问题
+4. 为避免与原版节点冲突，Turbo 版现在默认使用独立节点ID（例如 `TurboLLMModelLoader`），可与原版同时安装。
+5. 如需兼容旧 Turbo 工作流（旧ID），可设置环境变量 `LLM_SDXL_TURBO_ENABLE_LEGACY_NODE_IDS=1`，但这会在与原版共存时重新引入覆盖风险。
 
 ## 感谢原作者
 
