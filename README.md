@@ -20,6 +20,7 @@
 - 适用于已经下载了原版adapter的用户
 - 运行 `python convert_adapter_format.py 原始adapter路径`转换格式
 - 运行 `python verify_adapter.py 转换的adapter路径`进行验证
+
 ## 📦 安装
 ### 安装节点
 1. 将仓库克隆到 `ComfyUI/custom_nodes/`：
