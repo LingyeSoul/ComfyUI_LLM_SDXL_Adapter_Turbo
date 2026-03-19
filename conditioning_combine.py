@@ -62,7 +62,7 @@ class LLMConditioningCombine:
                 "conditioning_1": ("CONDITIONING",),
                 "conditioning_2": ("CONDITIONING",),
                 "max_tokens": ("INT", {"default": 192, "min": 32, "max": 4096, "step": 8}),
-                "truncate_strategy": (["keep_start", "keep_end", "balanced"], {"default": "balanced"}),
+                "truncate_strategy": (["disable", "keep_start", "keep_end", "balanced"], {"default": "balanced"}),
             }
         }
 
@@ -114,7 +114,7 @@ class LLMConditioningCombine:
                 combined_tensor = torch.cat([cond_1_tensor, cond_2_tensor], dim=1)
 
                 combined_tokens = combined_tensor.shape[1]
-                if combined_tokens > token_limit:
+                if truncate_strategy != "disable" and combined_tokens > token_limit:
                     if truncate_strategy == "keep_start":
                         combined_tensor = combined_tensor[:, :token_limit, :]
                     elif truncate_strategy == "keep_end":
@@ -205,7 +205,7 @@ class LLMConditioningConcat:
                 "conditioning_to": ("CONDITIONING",),
                 "conditioning_from": ("CONDITIONING",),
                 "max_tokens": ("INT", {"default": 192, "min": 32, "max": 4096, "step": 8}),
-                "truncate_strategy": (["keep_start", "keep_end", "balanced"], {"default": "balanced"}),
+                "truncate_strategy": (["disable", "keep_start", "keep_end", "balanced"], {"default": "balanced"}),
             }
         }
 
@@ -257,7 +257,7 @@ class LLMConditioningConcat:
                 concat_tensor = torch.cat([to_tensor, from_tensor], dim=1)
 
                 concat_tokens = concat_tensor.shape[1]
-                if concat_tokens > token_limit:
+                if truncate_strategy != "disable" and concat_tokens > token_limit:
                     if truncate_strategy == "keep_start":
                         concat_tensor = concat_tensor[:, :token_limit, :]
                     elif truncate_strategy == "keep_end":

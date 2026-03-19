@@ -16,6 +16,7 @@ class ApplyLLMToSDXLAdapter:
                 "llm_hidden_states": ("LLM_HIDDEN_STATES",),
                 "llm_adapter": ("LLM_ADAPTER",),
                 "force_cpu_output": ("BOOLEAN", {"default": False}),
+                "enable_diagnostics": ("BOOLEAN", {"default": False}),
             }
         }
 
@@ -24,7 +25,7 @@ class ApplyLLMToSDXLAdapter:
     FUNCTION = "apply_adapter"
     CATEGORY = "llm_sdxl_turbo"
 
-    def apply_adapter(self, llm_hidden_states, llm_adapter, force_cpu_output=False):
+    def apply_adapter(self, llm_hidden_states, llm_adapter, force_cpu_output=False, enable_diagnostics=False):
         """Apply the LLM to SDXL adapter transformation"""
         try:
             # Get adapter device and dtype
@@ -53,21 +54,31 @@ class ApplyLLMToSDXLAdapter:
             # ComfyUI expects conditioning as a list of [cond_tensor, metadata_dict] tuples
             comfy_conditioning = [[conditioning, {"pooled_output": pooled_output}]]
 
-            # Quick diagnostics for prompt-compliance debugging.
-            cond_mean = conditioning.mean().item()
-            cond_std = conditioning.std().item()
-            cond_norm = conditioning.norm().item()
-            pooled_mean = pooled_output.mean().item()
-            pooled_std = pooled_output.std().item()
-            pooled_norm = pooled_output.norm().item()
-
             # Prepare info
-            info = (
-                f"Conditioning shape: {conditioning.shape}\n"
-                f"Output device: {conditioning.device}\n"
-                f"cond(mean/std/norm): {cond_mean:.6f}/{cond_std:.6f}/{cond_norm:.6f}\n"
-                f"pooled(mean/std/norm): {pooled_mean:.6f}/{pooled_std:.6f}/{pooled_norm:.6f}"
-            )
+            info_lines = [
+                f"Conditioning shape: {conditioning.shape}",
+                f"Output device: {conditioning.device}",
+            ]
+
+            if enable_diagnostics:
+                # Optional diagnostics for prompt-compliance debugging.
+                # This introduces GPU->CPU sync when tensors are on GPU.
+                cond_mean = conditioning.mean().item()
+                cond_std = conditioning.std().item()
+                cond_norm = conditioning.norm().item()
+                pooled_mean = pooled_output.mean().item()
+                pooled_std = pooled_output.std().item()
+                pooled_norm = pooled_output.norm().item()
+                info_lines.append(
+                    f"cond(mean/std/norm): {cond_mean:.6f}/{cond_std:.6f}/{cond_norm:.6f}"
+                )
+                info_lines.append(
+                    f"pooled(mean/std/norm): {pooled_mean:.6f}/{pooled_std:.6f}/{pooled_norm:.6f}"
+                )
+            else:
+                info_lines.append("Diagnostics: disabled")
+
+            info = "\n".join(info_lines)
 
             logger.info(f"Applied LLM to SDXL adapter: {info}")
 
