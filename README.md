@@ -44,6 +44,9 @@ git clone https://github.com/LingyeSoul/ComfyUI_LLM_SDXL_Adapter_Turbo.git
 ### 提示
 本项目目前仅支持gemma-3-1b-it模型，建议使用原始非量化模型，如果使用GGUF，加载器会像原版一样强制加载原始tokenizer等，以保证GGUF模型不会过多损失效果
 
+> GGUF 加载器为离线优先：不会自动联网下载 tokenizer。
+> 请确保 `ComfyUI/models/llm/gemma-3-1b-it/` 下至少存在 `tokenizer_config.json`、`special_tokens_map.json`、`tokenizer.json`。
+
 ## 🧩 条件处理节点说明（Conditioning）（本部分由AI生成，作者不保证解释合理）
 
 送进采样链路（KSampler 等）的 `conditioning` 需要与 SDXL 侧语义一致，主要包括三部分：

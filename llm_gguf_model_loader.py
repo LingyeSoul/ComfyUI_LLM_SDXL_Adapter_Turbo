@@ -8,7 +8,6 @@ from .utils import get_llm_ggufs, get_llm_gguf_path
 
 logger = logging.getLogger("LLM-SDXL-Adapter-Turbo")
 
-GEMMA_TOKENIZER_REPO = "unsloth/gemma-3-1b-it"
 GEMMA_LOCAL_TOKENIZER_DIR = "gemma-3-1b-it"
 
 
@@ -20,32 +19,37 @@ def _get_local_gemma_tokenizer_path():
 def _ensure_local_gemma_tokenizer():
     """
     Ensure hardcoded Gemma tokenizer exists under models/llm/gemma-3-1b-it.
-    Downloads from HF once and reuses local cache afterwards.
+    Offline-only: never download automatically.
     """
     local_path = _get_local_gemma_tokenizer_path()
     required_files = [
         "tokenizer_config.json",
         "special_tokens_map.json",
+        "tokenizer.json",
     ]
 
-    if os.path.isdir(local_path) and all(
-        os.path.exists(os.path.join(local_path, file_name)) for file_name in required_files
-    ):
-        return local_path, False
+    if not os.path.isdir(local_path):
+        raise FileNotFoundError(
+            "Local Gemma tokenizer directory not found. "
+            f"Expected: {local_path}. "
+            "Offline mode: auto-download is disabled. "
+            "Please place tokenizer files manually."
+        )
 
-    os.makedirs(local_path, exist_ok=True)
-    logger.info(
-        "Local Gemma tokenizer cache not found at %s, downloading %s",
-        local_path,
-        GEMMA_TOKENIZER_REPO,
-    )
+    missing_files = [
+        file_name
+        for file_name in required_files
+        if not os.path.exists(os.path.join(local_path, file_name))
+    ]
+    if missing_files:
+        raise FileNotFoundError(
+            "Local Gemma tokenizer files are incomplete. "
+            f"Missing: {', '.join(missing_files)}. "
+            f"Expected directory: {local_path}. "
+            "Offline mode: auto-download is disabled."
+        )
 
-    tokenizer = AutoTokenizer.from_pretrained(
-        GEMMA_TOKENIZER_REPO,
-        trust_remote_code=True,
-    )
-    tokenizer.save_pretrained(local_path)
-    return local_path, True
+    return local_path
 
 
 def _is_flash_attn_2_available():
@@ -253,18 +257,14 @@ class LLMGGUFModelLoader:
 
                 # Force tokenizer/config source to Gemma IT baseline for better
                 # compatibility with adapter expectations.
-                    tokenizer_path, downloaded = _ensure_local_gemma_tokenizer()
+                    tokenizer_path = _ensure_local_gemma_tokenizer()
                     self.tokenizer = AutoTokenizer.from_pretrained(
                         tokenizer_path,
                         trust_remote_code=True,
                         local_files_only=True,
                     )
                     tokenizer_source = tokenizer_path
-
-                    if downloaded:
-                        logger.info(f"Downloaded and cached tokenizer at: {tokenizer_path}")
-                    else:
-                        logger.info(f"Using cached tokenizer at: {tokenizer_path}")
+                    logger.info(f"Using local tokenizer at: {tokenizer_path}")
 
                     # Keep behavior consistent with normal loader for text encoder auto mode.
                     self.model.eval()
