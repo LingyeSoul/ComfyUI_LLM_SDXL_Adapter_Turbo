@@ -9,47 +9,104 @@ from .utils import get_llm_ggufs, get_llm_gguf_path
 logger = logging.getLogger("LLM-SDXL-Adapter-Turbo")
 
 GEMMA_LOCAL_TOKENIZER_DIR = "gemma-3-1b-it"
+GEMMA_TOKENIZER_ENV_VAR = "LLM_SDXL_GEMMA_TOKENIZER_DIR"
+
+
+def _get_llm_search_paths():
+    """Return candidate llm root directories following ComfyUI path config."""
+    if "llm" in folder_paths.folder_names_and_paths:
+        llm_paths, _ = folder_paths.folder_names_and_paths["llm"]
+    elif os.path.exists(os.path.join(folder_paths.models_dir, "llm")):
+        llm_paths = [os.path.join(folder_paths.models_dir, "llm")]
+    else:
+        llm_paths = [os.path.join(folder_paths.models_dir, "LLM")]
+
+    normalized = []
+    seen = set()
+    for path in llm_paths:
+        key = os.path.normcase(os.path.abspath(path))
+        if key not in seen:
+            seen.add(key)
+            normalized.append(path)
+    return normalized
+
+
+def _get_gemma_tokenizer_candidates():
+    """Build ordered candidate directories for the hardcoded Gemma tokenizer."""
+    candidates = []
+    env_path = os.environ.get(GEMMA_TOKENIZER_ENV_VAR, "").strip()
+
+    if env_path:
+        candidates.append(env_path)
+        candidates.append(os.path.join(env_path, GEMMA_LOCAL_TOKENIZER_DIR))
+
+    for llm_root in _get_llm_search_paths():
+        candidates.append(os.path.join(llm_root, GEMMA_LOCAL_TOKENIZER_DIR))
+
+    normalized = []
+    seen = set()
+    for path in candidates:
+        key = os.path.normcase(os.path.abspath(path))
+        if key not in seen:
+            seen.add(key)
+            normalized.append(path)
+    return normalized
 
 
 def _get_local_gemma_tokenizer_path():
-    """Return local cache path for the hardcoded Gemma tokenizer."""
-    return os.path.join(folder_paths.models_dir, "llm", GEMMA_LOCAL_TOKENIZER_DIR)
+    """Return preferred local Gemma tokenizer path for logs and cache metadata."""
+    return _get_gemma_tokenizer_candidates()[0]
 
 
 def _ensure_local_gemma_tokenizer():
     """
-    Ensure hardcoded Gemma tokenizer exists under models/llm/gemma-3-1b-it.
+    Ensure hardcoded Gemma tokenizer exists in configured local llm paths.
     Offline-only: never download automatically.
     """
-    local_path = _get_local_gemma_tokenizer_path()
     required_files = [
         "tokenizer_config.json",
         "special_tokens_map.json",
         "tokenizer.json",
     ]
+    candidates = _get_gemma_tokenizer_candidates()
+    missing_by_path = {}
 
-    if not os.path.isdir(local_path):
-        raise FileNotFoundError(
-            "Local Gemma tokenizer directory not found. "
-            f"Expected: {local_path}. "
-            "Offline mode: auto-download is disabled. "
-            "Please place tokenizer files manually."
+    for candidate in candidates:
+        if not os.path.isdir(candidate):
+            continue
+
+        missing_files = [
+            file_name
+            for file_name in required_files
+            if not os.path.exists(os.path.join(candidate, file_name))
+        ]
+
+        if not missing_files:
+            return candidate
+
+        missing_by_path[candidate] = missing_files
+
+    searched = "; ".join(candidates)
+    if missing_by_path:
+        details = " | ".join(
+            [
+                f"{path} -> missing: {', '.join(files)}"
+                for path, files in missing_by_path.items()
+            ]
         )
-
-    missing_files = [
-        file_name
-        for file_name in required_files
-        if not os.path.exists(os.path.join(local_path, file_name))
-    ]
-    if missing_files:
         raise FileNotFoundError(
-            "Local Gemma tokenizer files are incomplete. "
-            f"Missing: {', '.join(missing_files)}. "
-            f"Expected directory: {local_path}. "
+            "Local Gemma tokenizer files are incomplete in discovered directories. "
+            f"Details: {details}. "
+            f"Searched: {searched}. "
             "Offline mode: auto-download is disabled."
         )
 
-    return local_path
+    raise FileNotFoundError(
+        "Local Gemma tokenizer directory not found. "
+        f"Searched: {searched}. "
+        "Offline mode: auto-download is disabled. "
+        f"Optionally set {GEMMA_TOKENIZER_ENV_VAR} to the tokenizer directory."
+    )
 
 
 def _is_flash_attn_2_available():
@@ -142,6 +199,7 @@ class LLMGGUFModelLoader:
     _shared_model = None
     _shared_tokenizer = None
     _shared_cache_key = None
+    _shared_tokenizer_source = None
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -226,7 +284,10 @@ class LLMGGUFModelLoader:
                 self.model = LLMGGUFModelLoader._shared_model
                 self.tokenizer = LLMGGUFModelLoader._shared_tokenizer
                 self.current_model_path = model_path
-                tokenizer_source = _get_local_gemma_tokenizer_path()
+                tokenizer_source = (
+                    LLMGGUFModelLoader._shared_tokenizer_source
+                    or _get_local_gemma_tokenizer_path()
+                )
                 logger.info("Reusing cached GGUF model and tokenizer")
             else:
 
@@ -275,13 +336,17 @@ class LLMGGUFModelLoader:
                     self.current_model_path = model_path
                     logger.info("Language Model loaded successfully")
                 else:
-                    tokenizer_source = _get_local_gemma_tokenizer_path()
+                    tokenizer_source = (
+                        LLMGGUFModelLoader._shared_tokenizer_source
+                        or _get_local_gemma_tokenizer_path()
+                    )
 
                 # Update shared cache after successful load/attach.
                 if self.model is not None and self.tokenizer is not None:
                     LLMGGUFModelLoader._shared_model = self.model
                     LLMGGUFModelLoader._shared_tokenizer = self.tokenizer
                     LLMGGUFModelLoader._shared_cache_key = cache_key
+                    LLMGGUFModelLoader._shared_tokenizer_source = tokenizer_source
 
             model_type = getattr(self.model.config, "model_type", "unknown")
             hidden_size = getattr(self.model.config, "hidden_size", "unknown")
